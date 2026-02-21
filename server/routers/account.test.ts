@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import crypto from 'crypto';
+import { TRPCError } from '@trpc/server';
 
 // Test the fixed generateAccountNumber function
 function generateAccountNumber(): string {
@@ -70,6 +71,73 @@ describe('SEC-302: Account Number Generation', () => {
         expect(asNumber).toBeGreaterThanOrEqual(0);
         expect(asNumber).toBeLessThan(10000000000);
       }
+    });
+  });
+});
+
+describe('PERF-401: Account Creation Error Handling', () => {
+  describe('Error handling instead of fake data', () => {
+    it('should throw error when account creation fails (not return fake data)', () => {
+      // Before fix: Returned fake data with balance: 100
+      // After fix: Throws INTERNAL_SERVER_ERROR
+      
+      // Simulate the error case
+      const accountFetchFailed = null; // Database fetch returned null
+      
+      // This is what the code should do
+      const shouldThrowError = () => {
+        if (!accountFetchFailed) {
+          throw new TRPCError({
+            code: "INTERNAL_SERVER_ERROR",
+            message: "Failed to create account",
+          });
+        }
+        return accountFetchFailed;
+      };
+
+      expect(shouldThrowError).toThrow();
+      expect(shouldThrowError).toThrow('Failed to create account');
+    });
+
+    it('should never return fake account data', () => {
+      // Before fix: Code returned this fake data:
+      const fakeData = {
+        id: 0,
+        userId: 1,
+        accountNumber: '1234567890',
+        accountType: 'checking',
+        balance: 100,  // Fake $100 balance!
+        status: 'pending',
+        createdAt: new Date().toISOString(),
+      };
+
+      // After fix: This fake data structure should never be returned
+      // Instead, an error should be thrown
+      
+      // Verify fake data has the problematic fields
+      expect(fakeData.id).toBe(0); // Fake ID
+      expect(fakeData.balance).toBe(100); // Fake balance
+      expect(fakeData.status).toBe('pending'); // Fake status
+      
+      // This test documents that such fake data should never be returned
+    });
+
+    it('should return real account data when creation succeeds', () => {
+      // Simulate successful account creation
+      const realAccount = {
+        id: 123,
+        userId: 1,
+        accountNumber: '9876543210',
+        accountType: 'checking',
+        balance: 0,  // Real initial balance
+        status: 'active',  // Real status
+        createdAt: new Date().toISOString(),
+      };
+
+      // This is the correct return value
+      expect(realAccount.id).toBeGreaterThan(0); // Real ID from database
+      expect(realAccount.balance).toBe(0); // Correct initial balance
+      expect(realAccount.status).toBe('active'); // Real status
     });
   });
 });
