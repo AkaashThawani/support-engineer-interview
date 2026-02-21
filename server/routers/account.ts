@@ -108,18 +108,15 @@ export const accountRouter = router({
         });
       }
 
-      // Create transaction
-      await db.insert(transactions).values({
+      // Create transaction and return it
+      const [transaction] = await db.insert(transactions).values({
         accountId: input.accountId,
         type: "deposit",
         amount,
         description: `Funding from ${input.fundingSource.type}`,
         status: "completed",
         processedAt: new Date().toISOString(),
-      });
-
-      // Fetch the created transaction
-      const transaction = await db.select().from(transactions).orderBy(transactions.createdAt).limit(1).get();
+      }).returning();
 
       // Update account balance
       await db

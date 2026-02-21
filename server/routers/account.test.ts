@@ -1,6 +1,10 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, afterAll } from 'vitest';
 import crypto from 'crypto';
 import { TRPCError } from '@trpc/server';
+import { db } from '@/lib/db';
+import { users, accounts, transactions } from '@/lib/db/schema';
+import { eq, like } from 'drizzle-orm';
+import bcrypt from 'bcryptjs';
 
 // Test the fixed generateAccountNumber function
 function generateAccountNumber(): string {
@@ -205,5 +209,142 @@ describe('PERF-401: Account Creation Error Handling', () => {
       expect(realAccount.balance).toBe(0); // Correct initial balance
       expect(realAccount.status).toBe('active'); // Real status
     });
+  });
+});
+
+describe('PERF-405: Missing Transactions - Integration Tests', () => {
+  // Cleanup after all tests
+  afterAll(async () => {
+    // Clean up test data - delete in correct order due to foreign keys
+    await db.delete(transactions).where(like(transactions.description, '%PERF405-TEST%'));
+    const testUsers = await db.select().from(users).where(like(users.email, '%perf405-test%'));
+    for (const user of testUsers) {
+      await db.delete(accounts).where(eq(accounts.userId, user.id));
+    }
+    await db.delete(users).where(like(users.email, '%perf405-test%'));
+  });
+
+  // Helper to create test user
+  async function createTestUser() {
+    const email = `perf405-test-${Date.now()}-${Math.random()}@test.com`;
+    const hashedPassword = await bcrypt.hash('password123', 10);
+    
+    await db.insert(users).values({
+      email,
+      password: hashedPassword,
+      firstName: 'Test',
+      lastName: 'User',
+      phoneNumber: '1234567890',
+      dateOfBirth: '1990-01-01',
+      ssn: '123456789',
+      address: '123 Test St',
+      city: 'Test City',
+      state: 'CA',
+      zipCode: '12345',
+    });
+
+    return db.select().from(users).where(eq(users.email, email)).get();
+  }
+
+  // Helper to create test account
+  async function createTestAccount(userId: number) {
+    const accountNumber = generateAccountNumber();
+    
+    await db.insert(accounts).values({
+      userId,
+      accountNumber,
+      accountType: 'checking',
+      balance: 0,
+      status: 'active',
+    });
+
+    return db.select().from(accounts).where(eq(accounts.accountNumber, accountNumber)).get();
+  }
+
+  it('should return exact transaction using .returning()', async () => {
+    // Create test user and account
+    const user = await createTestUser();
+    const account = await createTestAccount(user!.id);
+
+    // Insert transaction with .returning() - this is the fix
+    const [transaction] = await db.insert(transactions).values({
+      accountId: account!.id,
+      type: 'deposit',
+      amount: 100,
+      description: 'PERF405-TEST: deposit',
+      status: 'completed',
+      processedAt: new Date().toISOString(),
+    }).returning();
+
+    // Verify we got the exact transaction
+    expect(transaction).toBeDefined();
+    expect(transaction.accountId).toBe(account!.id);
+    expect(transaction.amount).toBe(100);
+    expect(transaction.description).toBe('PERF405-TEST: deposit');
+    expect(transaction.type).toBe('deposit');
+  });
+
+  it('should not return wrong transaction with concurrent inserts', async () => {
+    // Create test users and accounts
+    const user1 = await createTestUser();
+    const user2 = await createTestUser();
+    const account1 = await createTestAccount(user1!.id);
+    const account2 = await createTestAccount(user2!.id);
+
+    // Insert two different transactions
+    const [transaction1] = await db.insert(transactions).values({
+      accountId: account1!.id,
+      type: 'deposit',
+      amount: 100,
+      description: 'PERF405-TEST: user1 deposit',
+      status: 'completed',
+      processedAt: new Date().toISOString(),
+    }).returning();
+
+    const [transaction2] = await db.insert(transactions).values({
+      accountId: account2!.id,
+      type: 'deposit',
+      amount: 200,
+      description: 'PERF405-TEST: user2 deposit',
+      status: 'completed',
+      processedAt: new Date().toISOString(),
+    }).returning();
+
+    // Each should get their own transaction
+    expect(transaction1.accountId).toBe(account1!.id);
+    expect(transaction1.amount).toBe(100);
+    
+    expect(transaction2.accountId).toBe(account2!.id);
+    expect(transaction2.amount).toBe(200);
+    
+    // They should be different
+    expect(transaction1.id).not.toBe(transaction2.id);
+  });
+
+  it('should return transaction with all correct fields', async () => {
+    const user = await createTestUser();
+    const account = await createTestAccount(user!.id);
+
+    const testAmount = 250.50;
+    const testDescription = 'PERF405-TEST: specific amount';
+
+    const [transaction] = await db.insert(transactions).values({
+      accountId: account!.id,
+      type: 'withdrawal',
+      amount: testAmount,
+      description: testDescription,
+      status: 'pending',
+      processedAt: new Date().toISOString(),
+    }).returning();
+
+    // Verify all fields
+    expect(transaction.id).toBeGreaterThan(0);
+    expect(transaction.accountId).toBe(account!.id);
+    expect(transaction.type).toBe('withdrawal');
+    expect(transaction.amount).toBe(testAmount);
+    expect(transaction.description).toBe(testDescription);
+    expect(transaction.status).toBe('pending');
+    expect(transaction.createdAt).toBeDefined();
+    expect(transaction.processedAt).toBeDefined();
   });
 });
