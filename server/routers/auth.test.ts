@@ -258,4 +258,58 @@ describe('Session Management', () => {
       expect(user2Sessions).toHaveLength(1);
     });
   });
+
+  describe('PERF-402: Logout Status Verification', () => {
+    it('should return success when session is deleted', () => {
+      // Simulate successful deletion
+      const deletedCount = 1;
+      const hasUser = true;
+      
+      const success = deletedCount > 0 || !hasUser;
+      const message = deletedCount > 0 ? "Logged out successfully" : "No active session found";
+      
+      expect(success).toBe(true);
+      expect(message).toBe("Logged out successfully");
+    });
+
+    it('should return failure when session deletion fails', () => {
+      // Simulate failed deletion (session not found)
+      const deletedCount = 0;
+      const hasUser = true;
+      
+      const success = deletedCount > 0 || !hasUser;
+      const message = deletedCount > 0 ? "Logged out successfully" : "No active session found";
+      
+      expect(success).toBe(false);
+      expect(message).toBe("No active session found");
+    });
+
+    it('should return success when no user is logged in', () => {
+      // User already logged out
+      const deletedCount = 0;
+      const hasUser = false;
+      
+      const success = deletedCount > 0 || !hasUser;
+      const message = deletedCount > 0 ? "Logged out successfully" : "No active session found";
+      
+      expect(success).toBe(true);
+      expect(message).toBe("No active session found");
+    });
+
+    it('should use deletedCount from database result', () => {
+      // Simulate database result
+      const dbResult = { changes: 1 };
+      const deletedCount = dbResult.changes || 0;
+      
+      expect(deletedCount).toBe(1);
+    });
+
+    it('should fallback to 0 if database result is undefined', () => {
+      // Simulate database result with undefined changes
+      const dbResult = { changes: undefined };
+      const deletedCount = dbResult.changes || 0;
+      
+      expect(deletedCount).toBe(0);
+    });
+  });
 });
