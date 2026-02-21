@@ -104,18 +104,36 @@ export const authRouter = router({
         });
       }
 
-      const token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET || "temporary-secret-for-interview", {
-        expiresIn: "7d",
-      });
+      // Check for existing valid session first (session reuse)
+      const existingSession = await db
+        .select()
+        .from(sessions)
+        .where(eq(sessions.userId, user.id))
+        .get();
 
-      const expiresAt = new Date();
-      expiresAt.setDate(expiresAt.getDate() + 7);
+      let token: string;
+      
+      // Reuse session if valid, otherwise create new
+      if (existingSession && new Date(existingSession.expiresAt) > new Date()) {
+        // Valid session exists, reuse it
+        token = existingSession.token;
+      } else {
+        // No valid session, delete expired and create new
+        await db.delete(sessions).where(eq(sessions.userId, user.id));
 
-      await db.insert(sessions).values({
-        userId: user.id,
-        token,
-        expiresAt: expiresAt.toISOString(),
-      });
+        token = jwt.sign({ userId: user.id }, process.env.JWT_SECRET || "temporary-secret-for-interview", {
+          expiresIn: "7d",
+        });
+
+        const expiresAt = new Date();
+        expiresAt.setDate(expiresAt.getDate() + 7);
+
+        await db.insert(sessions).values({
+          userId: user.id,
+          token,
+          expiresAt: expiresAt.toISOString(),
+        });
+      }
 
       if ("setHeader" in ctx.res) {
         ctx.res.setHeader("Set-Cookie", `session=${token}; Path=/; HttpOnly; SameSite=Strict; Max-Age=604800`);
