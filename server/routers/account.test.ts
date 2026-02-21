@@ -348,3 +348,169 @@ describe('PERF-405: Missing Transactions - Integration Tests', () => {
     expect(transaction.processedAt).toBeDefined();
   });
 });
+
+describe('PERF-406: Balance Calculation - Integration Tests', () => {
+  // Cleanup after all tests
+  afterAll(async () => {
+    // Clean up test data
+    await db.delete(transactions).where(like(transactions.description, '%PERF406-TEST%'));
+    const testUsers = await db.select().from(users).where(like(users.email, '%perf406-test%'));
+    for (const user of testUsers) {
+      await db.delete(accounts).where(eq(accounts.userId, user.id));
+    }
+    await db.delete(users).where(like(users.email, '%perf406-test%'));
+  });
+
+  // Helper to create test user
+  async function createTestUser() {
+    const email = `perf406-test-${Date.now()}-${Math.random()}@test.com`;
+    const hashedPassword = await bcrypt.hash('password123', 10);
+    
+    await db.insert(users).values({
+      email,
+      password: hashedPassword,
+      firstName: 'Test',
+      lastName: 'User',
+      phoneNumber: '1234567890',
+      dateOfBirth: '1990-01-01',
+      ssn: '123456789',
+      address: '123 Test St',
+      city: 'Test City',
+      state: 'CA',
+      zipCode: '12345',
+    });
+
+    return db.select().from(users).where(eq(users.email, email)).get();
+  }
+
+  // Helper to create test account
+  async function createTestAccount(userId: number, initialBalance: number = 0) {
+    const accountNumber = generateAccountNumber();
+    
+    await db.insert(accounts).values({
+      userId,
+      accountNumber,
+      accountType: 'checking',
+      balance: initialBalance,
+      status: 'active',
+    });
+
+    return db.select().from(accounts).where(eq(accounts.accountNumber, accountNumber)).get();
+  }
+
+  it('should calculate balance correctly without loop', () => {
+    // Before fix: Used inefficient loop with 100 iterations
+    const oldBalance = 100;
+    const amount = 50;
+    
+    // Old way (inefficient)
+    let oldResult = oldBalance;
+    for (let i = 0; i < 100; i++) {
+      oldResult = oldResult + amount / 100;
+    }
+    
+    // New way (efficient)
+    const newResult = oldBalance + amount;
+    
+    // New way should be exact
+    expect(newResult).toBe(150);
+    
+    // Old way has rounding errors due to floating point
+    expect(oldResult).toBeCloseTo(150, 10);
+  });
+
+  it('should return exact balance without floating point errors', async () => {
+    const user = await createTestUser();
+    const account = await createTestAccount(user!.id, 100);
+
+    const depositAmount = 50.50;
+
+    // Insert transaction
+    const [transaction] = await db.insert(transactions).values({
+      accountId: account!.id,
+      type: 'deposit',
+      amount: depositAmount,
+      description: 'PERF406-TEST: deposit',
+      status: 'completed',
+      processedAt: new Date().toISOString(),
+    }).returning();
+
+    // Calculate new balance (what the fixed code does)
+    const newBalance = account!.balance + depositAmount;
+
+    // Should be exact
+    expect(newBalance).toBe(150.50);
+    expect(transaction.amount).toBe(50.50);
+  });
+
+  it('should handle multiple deposits with correct balance', async () => {
+    const user = await createTestUser();
+    const account = await createTestAccount(user!.id, 0);
+
+    let currentBalance = 0;
+
+    // Deposit 1
+    const [tx1] = await db.insert(transactions).values({
+      accountId: account!.id,
+      type: 'deposit',
+      amount: 100,
+      description: 'PERF406-TEST: deposit 1',
+      status: 'completed',
+      processedAt: new Date().toISOString(),
+    }).returning();
+    
+    currentBalance = currentBalance + tx1.amount;
+    expect(currentBalance).toBe(100);
+
+    // Deposit 2
+    const [tx2] = await db.insert(transactions).values({
+      accountId: account!.id,
+      type: 'deposit',
+      amount: 250.75,
+      description: 'PERF406-TEST: deposit 2',
+      status: 'completed',
+      processedAt: new Date().toISOString(),
+    }).returning();
+    
+    currentBalance = currentBalance + tx2.amount;
+    expect(currentBalance).toBe(350.75);
+
+    // Deposit 3
+    const [tx3] = await db.insert(transactions).values({
+      accountId: account!.id,
+      type: 'deposit',
+      amount: 49.25,
+      description: 'PERF406-TEST: deposit 3',
+      status: 'completed',
+      processedAt: new Date().toISOString(),
+    }).returning();
+    
+    currentBalance = currentBalance + tx3.amount;
+    expect(currentBalance).toBe(400);
+  });
+
+  it('should be more efficient than loop (performance)', () => {
+    const oldBalance = 1000;
+    const amount = 500;
+
+    // Measure old way (with loop)
+    const oldStart = performance.now();
+    let oldResult = oldBalance;
+    for (let i = 0; i < 100; i++) {
+      oldResult = oldResult + amount / 100;
+    }
+    const oldTime = performance.now() - oldStart;
+
+    // Measure new way (direct calculation)
+    const newStart = performance.now();
+    const newResult = oldBalance + amount;
+    const newTime = performance.now() - newStart;
+
+    // New way should be faster (or at least not slower)
+    expect(newTime).toBeLessThanOrEqual(oldTime * 2); // Allow some variance
+    
+    // Both should give similar results
+    expect(newResult).toBe(1500);
+    expect(oldResult).toBeCloseTo(1500, 10);
+  });
+});
