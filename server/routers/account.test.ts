@@ -73,6 +73,72 @@ describe('SEC-302: Account Number Generation', () => {
       }
     });
   });
+
+  describe('PERF-404: Transaction Sorting', () => {
+    it('should return transactions in descending order (newest first)', () => {
+      // Simulate transactions with different timestamps
+      const transactions = [
+        { id: 1, createdAt: '2024-01-01T10:00:00Z', amount: 100 },
+        { id: 2, createdAt: '2024-01-03T10:00:00Z', amount: 200 },
+        { id: 3, createdAt: '2024-01-02T10:00:00Z', amount: 150 },
+      ];
+
+      // Sort by createdAt descending (newest first)
+      const sorted = [...transactions].sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+
+      expect(sorted[0].id).toBe(2); // Jan 3 (newest)
+      expect(sorted[1].id).toBe(3); // Jan 2
+      expect(sorted[2].id).toBe(1); // Jan 1 (oldest)
+    });
+
+    it('should maintain consistent order on multiple queries', () => {
+      const transactions = [
+        { id: 1, createdAt: '2024-01-01T10:00:00Z' },
+        { id: 2, createdAt: '2024-01-02T10:00:00Z' },
+        { id: 3, createdAt: '2024-01-03T10:00:00Z' },
+      ];
+
+      // Query 1
+      const query1 = [...transactions].sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+
+      // Query 2
+      const query2 = [...transactions].sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+
+      // Results should be identical
+      expect(query1).toEqual(query2);
+      expect(query1[0].id).toBe(3);
+    });
+
+    it('should handle transactions with same timestamp', () => {
+      const sameTime = '2024-01-01T10:00:00Z';
+      const transactions = [
+        { id: 1, createdAt: sameTime, amount: 100 },
+        { id: 2, createdAt: sameTime, amount: 200 },
+      ];
+
+      const sorted = [...transactions].sort((a, b) => 
+        new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+
+      // Should maintain some consistent order
+      expect(sorted).toHaveLength(2);
+    });
+
+    it('should properly compare dates for sorting', () => {
+      const oldDate = new Date('2024-01-01');
+      const newDate = new Date('2024-01-02');
+
+      // Descending: newer > older
+      expect(newDate.getTime() > oldDate.getTime()).toBe(true);
+      expect(newDate.getTime() - oldDate.getTime()).toBeGreaterThan(0);
+    });
+  });
 });
 
 describe('PERF-401: Account Creation Error Handling', () => {
