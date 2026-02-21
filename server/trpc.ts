@@ -54,7 +54,7 @@ export async function createContext(opts: CreateNextContextOptions | FetchCreate
 
       const session = await db.select().from(sessions).where(eq(sessions.token, token)).get();
 
-      if (session && new Date(session.expiresAt) > new Date()) {
+      if (session && new Date(session.expiresAt) >= new Date()) {
         user = await db.select().from(users).where(eq(users.id, decoded.userId)).get();
         const expiresIn = new Date(session.expiresAt).getTime() - new Date().getTime();
         if (expiresIn < 60000) {
