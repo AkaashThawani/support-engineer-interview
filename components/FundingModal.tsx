@@ -57,26 +57,28 @@ export function FundingModal({ accountId, onClose, onSuccess }: FundingModalProp
 
   return (
     <div className="fixed inset-0 bg-gray-500 bg-opacity-75 flex items-center justify-center p-4">
-      <div className="bg-white rounded-lg max-w-md w-full p-6">
-        <h3 className="text-lg font-medium text-gray-900 mb-4">Fund Your Account</h3>
+      <div className="bg-white dark:bg-gray-800 rounded-lg max-w-md w-full p-6">
+        <h3 className="text-lg font-medium text-gray-900 dark:text-gray-100 mb-4">Fund Your Account</h3>
 
         <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
           <div>
-            <label className="block text-sm font-medium text-gray-700">Amount</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-100">Amount</label>
             <div className="mt-1 relative rounded-md shadow-sm">
               <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
-                <span className="text-gray-500 sm:text-sm">$</span>
+                <span className="text-gray-900 dark:text-gray-700 sm:text-sm">$</span>
               </div>
               <input
                 {...register("amount", {
                   required: "Amount is required",
                   pattern: {
-                    value: /^\d+\.?\d{0,2}$/,
-                    message: "Invalid amount format",
+                    value: /^(?!0\d)\d+(\.\d{1,2})?$/,
+                    message: "Invalid amount format (no leading zeros)",
                   },
-                  min: {
-                    value: 0.0,
-                    message: "Amount must be at least $0.01",
+                  validate: {
+                    minimumAmount: (value) => {
+                      const amount = parseFloat(value);
+                      return amount >= 0.01 || "Amount must be at least $0.01";
+                    },
                   },
                   max: {
                     value: 10000,
@@ -92,34 +94,58 @@ export function FundingModal({ accountId, onClose, onSuccess }: FundingModalProp
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-2">Funding Source</label>
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-100 mb-2">Funding Source</label>
             <div className="space-y-2">
               <label className="flex items-center">
                 <input {...register("fundingType")} type="radio" value="card" className="mr-2" />
-                <span>Credit/Debit Card</span>
+                <span className="dark:text-gray-100">Credit/Debit Card</span>
               </label>
               <label className="flex items-center">
                 <input {...register("fundingType")} type="radio" value="bank" className="mr-2" />
-                <span>Bank Account</span>
+                <span className="dark:text-gray-100">Bank Account</span>
               </label>
             </div>
           </div>
 
           <div>
-            <label className="block text-sm font-medium text-gray-700">
+            <label className="block text-sm font-medium text-gray-700 dark:text-gray-100">
               {fundingType === "card" ? "Card Number" : "Account Number"}
             </label>
             <input
               {...register("accountNumber", {
                 required: `${fundingType === "card" ? "Card" : "Account"} number is required`,
                 pattern: {
-                  value: fundingType === "card" ? /^\d{16}$/ : /^\d+$/,
-                  message: fundingType === "card" ? "Card number must be 16 digits" : "Invalid account number",
+                  value: fundingType === "card" ? /^\d{13,19}$/ : /^\d+$/,
+                  message: fundingType === "card" ? "Card number must be 13-19 digits" : "Invalid account number",
                 },
                 validate: {
-                  validCard: (value) => {
+                  validCardType: (value) => {
                     if (fundingType !== "card") return true;
-                    return value.startsWith("4") || value.startsWith("5") || "Invalid card number";
+                    // Visa: 4, Mastercard: 51-55, Amex: 34,37, Discover: 6011,65
+                    const cardPatterns = {
+                      visa: /^4[0-9]{12,18}$/,
+                      mastercard: /^5[1-5][0-9]{14}$/,
+                      amex: /^3[47][0-9]{13}$/,
+                      discover: /^6(?:011|5[0-9]{2})[0-9]{12}$/,
+                    };
+                    const isValidType = Object.values(cardPatterns).some(pattern => pattern.test(value));
+                    return isValidType || "Invalid or unsupported card type (Visa, Mastercard, Amex, Discover only)";
+                  },
+                  luhnCheck: (value) => {
+                    if (fundingType !== "card") return true;
+                    // Luhn algorithm
+                    let sum = 0;
+                    let isEven = false;
+                    for (let i = value.length - 1; i >= 0; i--) {
+                      let digit = parseInt(value[i]);
+                      if (isEven) {
+                        digit *= 2;
+                        if (digit > 9) digit -= 9;
+                      }
+                      sum += digit;
+                      isEven = !isEven;
+                    }
+                    return sum % 10 === 0 || "Invalid card number (failed checksum)";
                   },
                 },
               })}
@@ -132,7 +158,7 @@ export function FundingModal({ accountId, onClose, onSuccess }: FundingModalProp
 
           {fundingType === "bank" && (
             <div>
-              <label className="block text-sm font-medium text-gray-700">Routing Number</label>
+              <label className="block text-sm font-medium text-gray-700 dark:text-gray-100">Routing Number</label>
               <input
                 {...register("routingNumber", {
                   required: "Routing number is required",
@@ -155,7 +181,7 @@ export function FundingModal({ accountId, onClose, onSuccess }: FundingModalProp
             <button
               type="button"
               onClick={onClose}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-md hover:bg-gray-50"
+              className="px-4 py-2 text-sm font-medium text-gray-700 dark:text-gray-100 bg-white dark:bg-gray-700 border border-gray-300 dark:border-gray-600 rounded-md hover:bg-gray-50 dark:hover:bg-gray-600"
             >
               Cancel
             </button>

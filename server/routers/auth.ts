@@ -13,11 +13,32 @@ export const authRouter = router({
     .input(
       z.object({
         email: z.string().email().toLowerCase(),
-        password: z.string().min(8),
+        password: z.string()
+          .min(8, "Password must be at least 8 characters")
+          .regex(/[A-Z]/, "Password must contain an uppercase letter")
+          .regex(/[a-z]/, "Password must contain a lowercase letter")
+          .regex(/[0-9]/, "Password must contain a number")
+          .regex(/[^A-Za-z0-9]/, "Password must contain a special character"),
         firstName: z.string().min(1),
         lastName: z.string().min(1),
-        phoneNumber: z.string().regex(/^\+?\d{10,15}$/),
-        dateOfBirth: z.string(),
+        phoneNumber: z.string().regex(/^\d{10}$/, "Phone number must be 10 digits"),
+        dateOfBirth: z.string().refine((date) => {
+          const dob = new Date(date);
+          const today = new Date();
+          
+          // Check not future date
+          if (dob > today) return false;
+          
+          // Check age >= 18
+          let age = today.getFullYear() - dob.getFullYear();
+          const monthDiff = today.getMonth() - dob.getMonth();
+          
+          if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < dob.getDate())) {
+            age--;
+          }
+          
+          return age >= 18;
+        }, { message: "Must be at least 18 years old and not a future date" }),
         ssn: z.string().regex(/^\d{9}$/),
         address: z.string().min(1),
         city: z.string().min(1),

@@ -57,5 +57,30 @@ export function initDb() {
   `);
 }
 
+// Graceful shutdown handler
+export function closeDb() {
+  if (sqlite.open) {
+    sqlite.close();
+    console.log('Database connection closed');
+  }
+}
+
+// Handle process termination signals
+if (typeof process !== 'undefined') {
+  process.on('SIGINT', () => {
+    closeDb();
+    process.exit(0);
+  });
+
+  process.on('SIGTERM', () => {
+    closeDb();
+    process.exit(0);
+  });
+
+  process.on('exit', () => {
+    closeDb();
+  });
+}
+
 // Initialize database on import
 initDb();

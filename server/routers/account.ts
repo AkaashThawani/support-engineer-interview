@@ -76,11 +76,19 @@ export const accountRouter = router({
     .input(
       z.object({
         accountId: z.number(),
-        amount: z.number().positive(),
+        amount: z.number().positive().min(0.01, "Amount must be at least $0.01"),
         fundingSource: z.object({
           type: z.enum(["card", "bank"]),
           accountNumber: z.string(),
           routingNumber: z.string().optional(),
+        }).refine((data) => {
+          if (data.type === "bank") {
+            return data.routingNumber && /^\d{9}$/.test(data.routingNumber);
+          }
+          return true;
+        }, {
+          message: "Routing number required for bank transfers and must be 9 digits",
+          path: ["routingNumber"]
         }),
       })
     )
